@@ -14,23 +14,34 @@ class TopicSection:
 
 
 @dataclass
+class MeshHeading:
+    mesh_id: str
+    term: str
+
+
+@dataclass
+class RelatedTopic:
+    topic_id: str
+    title: str
+    url: str
+
+
+@dataclass
 class Topic:
     topic_id: str
     title: str
     url: Optional[str]
     synonyms: List[str]
     sections: List[TopicSection]
-    language: str  # e.g., "english"
+    language: str
     group_ids: List[str]
     group_titles: List[str]
-    linked_mentions: List[str]  # anchor texts from <a> links in summaries (lowercased)
+    linked_mentions: List[str]      # anchor texts from summary <a> links
+    mesh_headings: List[MeshHeading]  # MeSH terms for entity-driven filtering
+    related_topics: List[RelatedTopic]  # topic graph for future retrieval expansion
 
 
 def _clean_text(s: str) -> str:
-    """
-    Unescape HTML entities and normalize whitespace.
-    Example: '&lt;p&gt;Hello&lt;/p&gt;' -> '<p>Hello</p>'
-    """
     if not s:
         return ""
     s = html.unescape(s)
@@ -39,10 +50,6 @@ def _clean_text(s: str) -> str:
 
 
 def _get_text(elem) -> str:
-    """
-    Collect all text from an XML element (including nested children),
-    unescape HTML entities, and normalize whitespace.
-    """
     if elem is None:
         return ""
     raw = " ".join(elem.itertext())
@@ -50,9 +57,6 @@ def _get_text(elem) -> str:
 
 
 def _attr(elem, name: str) -> str:
-    """
-    Safe attribute getter with cleanup.
-    """
     if elem is None:
         return ""
     return _clean_text(elem.get(name) or "")
@@ -60,11 +64,8 @@ def _attr(elem, name: str) -> str:
 
 def _clean_html_and_extract_anchor_texts(html_str: str) -> Tuple[str, List[str]]:
     """
-    Convert HTML content to clean plain text for embeddings,
-    while extracting anchor texts (linked mentions) as a lightweight graph signal.
-
-    - Replaces <a>...</a> with visible anchor text (drops URL)
-    - Returns (plain_text, linked_mentions)
+    Convert HTML summary to plain text, extracting anchor texts as linked mentions.
+    Linked mentions are a lightweight graph signal for future retrieval expansion.
     """
     if not html_str:
         return "", []
@@ -77,13 +78,11 @@ def _clean_html_and_extract_anchor_texts(html_str: str) -> Tuple[str, List[str]]
         txt = re.sub(r"\s+", " ", txt).strip()
         if txt:
             anchor_texts.append(txt.lower())
-        # Replace the link tag with just its visible text
         a.replace_with(txt)
 
     plain = soup.get_text(" ", strip=True)
     plain = re.sub(r"\s+", " ", plain).strip()
 
-    # Deduplicate while preserving order
     seen = set()
     deduped: List[str] = []
     for t in anchor_texts:
@@ -98,11 +97,11 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
     """
     Parse MedlinePlus Health Topics XML into normalized Topic objects.
 
-    Key behaviors:
-      - Filters to English topics
-      - Extracts multiple <group> entries (ids + titles) as metadata
-      - Converts summary HTML to plain text for embeddings
-      - Extracts anchor texts from summary links into linked_mentions
+    Extracts:
+      - Summary text (plain, embedding-ready)
+      - Group metadata, synonyms, linked mentions
+      - MeSH headings — controlled vocabulary for entity-driven filtering
+      - Related topics — topic graph for future retrieval expansion
     """
     parser = etree.XMLParser(recover=True, huge_tree=True)
     tree = etree.parse(xml_path, parser)
@@ -111,8 +110,7 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
     topics: List[Topic] = []
 
     for ht in root.findall(".//health-topic"):
-        # ---- language filter ----
-        lang = _attr(ht, "language").lower()  # e.g., "english", "spanish"
+        lang = _attr(ht, "language").lower()
         url_attr = _attr(ht, "url")
 
         if english_only:
@@ -121,7 +119,6 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
             if url_attr and "/spanish/" in url_attr.lower():
                 continue
 
-        # ---- core fields (attributes-first, fallback to child tags) ----
         topic_id = _attr(ht, "id") or _get_text(ht.find("./id"))
         title = _attr(ht, "title") or _get_text(ht.find("./title"))
         url = url_attr or _get_text(ht.find("./url")) or None
@@ -129,15 +126,15 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
         if not title:
             continue
 
-        # ---- synonyms / also called ----
+        # ---- synonyms ----
         synonyms: List[str] = []
         for ac in ht.findall(".//also-called"):
             txt = _get_text(ac)
             if txt:
                 synonyms.append(txt)
-        synonyms = list(dict.fromkeys(synonyms))  # dedupe preserve order
+        synonyms = list(dict.fromkeys(synonyms))
 
-        # ---- group metadata (multiple <group> entries) ----
+        # ---- groups ----
         group_ids: List[str] = []
         group_titles: List[str] = []
         for g in ht.findall("./group"):
@@ -150,7 +147,30 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
         group_ids = list(dict.fromkeys(group_ids))
         group_titles = list(dict.fromkeys(group_titles))
 
-        # ---- sections (summary only) ----
+        # ---- MeSH headings — standard medical taxonomy, maps to NER output ----
+        mesh_headings: List[MeshHeading] = []
+        for mh in ht.findall("./mesh-heading"):
+            descriptor = mh.find("./descriptor")
+            if descriptor is not None:
+                mesh_id = _attr(descriptor, "id")
+                term = _get_text(descriptor)
+                if term:
+                    mesh_headings.append(MeshHeading(mesh_id=mesh_id, term=term))
+
+        # ---- related topics — stored for future topic graph expansion ----
+        related_topics: List[RelatedTopic] = []
+        for rt in ht.findall("./related-topic"):
+            rt_id = _attr(rt, "id")
+            rt_url = _attr(rt, "url")
+            rt_title = _get_text(rt)
+            if rt_title:
+                related_topics.append(RelatedTopic(
+                    topic_id=rt_id,
+                    title=rt_title,
+                    url=rt_url,
+                ))
+
+        # ---- summary ----
         sections: List[TopicSection] = []
         linked_mentions: List[str] = []
         full_summary_raw = _get_text(ht.find("./full-summary"))
@@ -162,7 +182,6 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
             if summary_text:
                 sections.append(TopicSection(name="Summary", text=summary_text))
 
-        # Fallback: if no summary found, store a "Body" section
         if not sections:
             body = _get_text(ht)
             if body and len(body) > 80:
@@ -179,6 +198,8 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
                 group_ids=group_ids,
                 group_titles=group_titles,
                 linked_mentions=linked_mentions,
+                mesh_headings=mesh_headings,
+                related_topics=related_topics,
             )
         )
 

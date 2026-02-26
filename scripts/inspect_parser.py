@@ -34,12 +34,16 @@ def main():
     with_groups = sum(1 for t in topics if t.group_titles)
     with_synonyms = sum(1 for t in topics if t.synonyms)
     with_linked = sum(1 for t in topics if t.linked_mentions)
+    with_mesh = sum(1 for t in topics if t.mesh_headings)
+    with_related = sum(1 for t in topics if t.related_topics)
 
     print(f"  With URL:            {with_url}")
     print(f"  With summary:        {with_summary}")
     print(f"  With groups:         {with_groups}")
     print(f"  With synonyms:       {with_synonyms}")
     print(f"  With linked mentions:{with_linked}")
+    print(f"  With MeSH headings:  {with_mesh}")
+    print(f"  With related topics: {with_related}")
 
     # --- Spot check on known topic ---
     print(f"\n=== Spot Check: '{SPOT_CHECK_TITLE}' ===")
@@ -56,6 +60,14 @@ def main():
         if summary:
             print(f"\n  Summary ({len(summary.text)} chars):")
             print(f"  {summary.text[:400]}...")
+
+        print(f"\n  MeSH headings ({len(topic.mesh_headings)}):")
+        for mh in topic.mesh_headings:
+            print(f"    [{mh.mesh_id}] {mh.term}")
+
+        print(f"\n  Related topics ({len(topic.related_topics)}):")
+        for rt in topic.related_topics:
+            print(f"    [{rt.topic_id}] {rt.title} — {rt.url}")
 
     # --- Preview first N topics ---
     print(f"\n=== First {PREVIEW_COUNT} Topics ===")
