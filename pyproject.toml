@@ -1,0 +1,31 @@
+[project]
+name = "medical-rag"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "gylrt"}
+]
+requires-python = ">=3.10"
+package-mode= false
+dependencies = [
+    "onnxruntime (==1.23.2)",
+    "lxml (>=6.0.2,<7.0.0)",
+    "beautifulsoup4 (>=4.14.3,<5.0.0)",
+    "sentence-transformers (>=5.2.3,<6.0.0)",
+    "chromadb (>=1.5.1,<2.0.0)",
+    "fastapi (>=0.133.1,<0.134.0)",
+    "uvicorn (>=0.41.0,<0.42.0)",
+    "python-dotenv (>=1.2.1,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.0.2,<10.0.0)",
+    "ruff (>=0.15.2,<0.16.0)",
+    "ipykernel (>=7.2.0,<8.0.0)"
+]
