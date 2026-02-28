@@ -55,7 +55,7 @@ Clean separation between:
 - Poetry (dependency management)
 - sentence-transformers — BAAI/bge-small-en-v1.5 (embeddings)
 - Chroma (vector store)
-- transformers — d4data/biomedical-ner-all (NER)
+- transformers — samrawal/bert-base-uncased_clinical-ner (NER)
 - FastAPI (service layer)
 - Docker (deployment)
 
@@ -63,7 +63,7 @@ Clean separation between:
 
 ## Models
 - [BAAI/bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) — MIT License
-- [d4data/biomedical-ner-all](https://huggingface.co/d4data/biomedical-ner-all) — MIT License
+- [samrawal/bert-base-uncased_clinical-ner](https://huggingface.co/samrawal/bert-base-uncased_clinical-ner) — Apache 2.0 — trained on i2b2/n2c2 2010 clinical NER dataset
 
 ---
 
@@ -78,8 +78,8 @@ Clean separation between:
 - [x] Chroma ingestion
 
 ### Pipeline 2 — Input processing
-- [ ] Biomedical NER (d4data/biomedical-ner-all)
-- [ ] Entity extraction + normalization
+- [X] Biomedical NER (samrawal/bert-base-uncased_clinical-ner)
+- [X] Entity extraction + normalization
 
 ### Combined — Grounded retrieval
 - [ ] Entity-driven Chroma retrieval with metadata filtering
