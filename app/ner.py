@@ -1,4 +1,3 @@
-import os
 import re
 from typing import List
 from dataclasses import dataclass
@@ -7,10 +6,9 @@ import nltk
 from nltk.corpus import stopwords
 from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
 
-nltk.download("stopwords", quiet=True)
+from app.config import settings
 
-NER_MODEL = os.getenv("NER_MODEL", "samrawal/bert-base-uncased_clinical-ner")
-MIN_SCORE = float(os.getenv("NER_MIN_SCORE", "0.95"))
+nltk.download("stopwords", quiet=True)
 
 _STOPWORDS = set(stopwords.words("english"))
 
@@ -22,7 +20,7 @@ class Entity:
     score: float
 
 
-def load_ner_pipeline(model_name: str = NER_MODEL):
+def load_ner_pipeline(model_name: str = settings.ner_model):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModelForTokenClassification.from_pretrained(model_name)
     return pipeline("ner", model=model, tokenizer=tokenizer, aggregation_strategy="first")
@@ -33,7 +31,7 @@ def _is_valid(text: str) -> bool:
 
 
 def _normalize(text: str) -> str:
-    """Strip leading stopwords"""
+    """Strip leading stopwords — e.g. 'the allegra' → 'allegra'."""
     words = text.strip().split()
     while words and words[0].lower() in _STOPWORDS:
         words = words[1:]
@@ -45,7 +43,7 @@ def _is_meaningful(text: str) -> bool:
 
 
 def _deduplicate(entities: List[Entity]) -> List[Entity]:
-    """Drop substring entities"""
+    """Drop substring entities — keeps 'allergic rhinitis', drops 'allergic' and 'rhinitis'."""
     texts = [e.text.lower() for e in entities]
     return [
         e for i, e in enumerate(entities)
@@ -65,7 +63,7 @@ def normalize_entities(entities: List[Entity]) -> List[Entity]:
     return _deduplicate(cleaned)
 
 
-def extract_entities(text: str, ner_pipeline, min_score: float = MIN_SCORE) -> List[Entity]:
+def extract_entities(text: str, ner_pipeline, min_score: float = settings.ner_min_score) -> List[Entity]:
     results = ner_pipeline(text)
     entities = [
         Entity(text=r["word"].strip(), label=r["entity_group"], score=round(r["score"], 3))

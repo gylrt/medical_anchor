@@ -4,13 +4,13 @@ from pathlib import Path
 import chromadb
 from chromadb.config import Settings
 
-CHROMA_DIR = "./data/chroma"
-COLLECTION_NAME = "medlineplus_v1"
+from app.config import settings
+
 SPOT_CHECK_TITLE = "Asthma"
 
 
 def main():
-    manifest_path = Path(CHROMA_DIR) / "ingest_manifest.json"
+    manifest_path = Path(settings.chroma_dir) / "ingest_manifest.json"
     if not manifest_path.exists():
         print("ERROR: ingest_manifest.json not found. Run ingest.py first.")
         return
@@ -23,10 +23,10 @@ def main():
         print(f"  {k}: {v}")
 
     client = chromadb.PersistentClient(
-        path=CHROMA_DIR,
+        path=settings.chroma_dir,
         settings=Settings(anonymized_telemetry=False),
     )
-    collection = client.get_collection(COLLECTION_NAME)
+    collection = client.get_collection(settings.collection_name)
     print(f"\n  Total chunks in collection: {collection.count()}")
 
     # Pull chunks by metadata filter to verify storage is correct
@@ -42,7 +42,6 @@ def main():
 
     print(f"  Chunks found: {len(results['ids'])}")
 
-    # Show first chunk only as sanity check
     meta = results["metadatas"][0]
     doc = results["documents"][0]
     print(f"\n  Sample chunk 0:")
