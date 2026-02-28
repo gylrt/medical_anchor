@@ -1,10 +1,10 @@
 # Medical Anchor
 
-A grounded medical insight system built on retrieval-augmented generation (RAG).
+A grounded medical information system for biomedical text analysis.
 
-Given any text input — a question, a clinical note, or a social media post — the system extracts biomedical entities, retrieves trusted evidence from official sources, and returns concise, grounded answers strictly based on that evidence.
+Given any text input — a clinical note, a social media post, a medical report — the system extracts biomedical entities and retrieves trusted, structured information about each one from official sources. Results are grounded strictly in retrieved evidence with full citations.
 
-No hallucination. No unsourced claims. Answers are anchored to retrieved content only.
+The system does not answer questions or generate text. It identifies what medical terms are present in your input and surfaces what MedlinePlus says about them.
 
 ---
 
@@ -38,10 +38,9 @@ User input (question, report, article...)
 
 **Combined — Grounded retrieval**
 ```
-Entities + Chroma DB
+Extracted entities + Chroma DB
 → Metadata-filtered vector retrieval
-→ Relevant chunks with citations     ← standalone valuable output
-→ Answer generation (optional, LLM grounded in retrieved chunks only)
+→ Grounded passages per entity + source URL
 ```
 
 Clean separation between:
@@ -54,7 +53,7 @@ Clean separation between:
 
 - Python 3.10
 - Poetry (dependency management)
-- sentence-transformers (embeddings)
+- sentence-transformers — BAAI/bge-small-en-v1.5 (embeddings)
 - Chroma (vector store)
 - transformers — d4data/biomedical-ner-all (NER)
 - FastAPI (service layer)
@@ -62,19 +61,21 @@ Clean separation between:
 
 ---
 
+## Models
+- [BAAI/bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) — MIT License
+- [d4data/biomedical-ner-all](https://huggingface.co/d4data/biomedical-ner-all) — MIT License
+
+---
+
 ## Project Status
 
-### Pipeline 1 — Data (completed)
+### Pipeline 1 — Data (complete)
 - [x] MedlinePlus XML download
 - [x] Parsing + English filtering
 - [x] HTML cleanup and text normalization
-- [x] Synonyms and group metadata extraction
-- [x] Linked mentions extraction
+- [x] Synonyms, group metadata, MeSH headings, related topics extraction
 - [x] Section-aware chunking
-
-### Pipeline 1 — Data (next)
-- [ ] Chroma ingestion
-- [ ] Inspection scripts
+- [x] Chroma ingestion
 
 ### Pipeline 2 — Input processing
 - [ ] Biomedical NER (d4data/biomedical-ner-all)
@@ -82,14 +83,16 @@ Clean separation between:
 
 ### Combined — Grounded retrieval
 - [ ] Entity-driven Chroma retrieval with metadata filtering
-- [ ] Citation output (chunk + source URL)
+- [ ] Grounded passage output per entity + source URL
 - [ ] FastAPI service layer (`/health`, `/extract`, `/retrieve`)
-- [ ] Docker deployment
+- [ ] Gradio UI (entity highlighting + grounded results display)
+- [ ] Docker deployment (Chroma DB baked into image)
+- [ ] Hugging Face Spaces deployment
 
 ### Optional extensions
 - [ ] Answer generation (LLM grounded in retrieved chunks)
 - [ ] Bilingual support (FR/EN)
-- [ ] Topic graph expansion via linked mentions
+- [ ] Topic graph expansion via related topics + linked mentions
 - [ ] Reranker / cross-encoder
 - [ ] Evaluation pipeline
 
@@ -103,8 +106,13 @@ app/
   download_medlineplus.py  # fetches MedlinePlus XML corpus
   parse_medlineplus.py     # XML parsing + metadata extraction
   chunking.py              # section-aware chunking
-scripts/                   # inspection and verification scripts (coming)
-data/                      # gitignored — XML corpus + vector DB
+  ingest.py                # embedding + Chroma ingestion
+scripts/
+  inspect_download.py      # verify downloaded XML and manifest
+  inspect_parser.py        # verify parser output and field completeness
+  inspect_chunking.py      # verify chunk sizes and metadata
+  inspect_ingest.py        # verify Chroma collection state
+data/                      # gitignored — XML corpus + Chroma DB
 ```
 
 ---
@@ -122,13 +130,29 @@ poetry install
 
 # Download the corpus
 python app/download_medlineplus.py
+
+# Run ingestion
+python app/ingest.py
+```
+
+---
+
+## Verification
+
+Run inspect scripts in order to verify each step:
+
+```bash
+python scripts/inspect_download.py
+python scripts/inspect_parser.py
+python scripts/inspect_chunking.py
+python scripts/inspect_ingest.py
 ```
 
 ---
 
 ## Design Philosophy
 
-- **Grounding first** — answers reference retrieved evidence only
+- **Grounding first** — output references retrieved evidence only, no generation
 - **Entity-router pattern** — NER entities drive retrieval filtering, not pure semantic search
-- **Metadata-aware** — section tags, topic groups, and linked mentions inform retrieval
+- **Metadata-aware** — MeSH headings, section tags, topic groups, and linked mentions inform retrieval
 - **Incremental engineering** — clean interfaces, testable steps, deployment-ready structure
