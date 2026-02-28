@@ -24,23 +24,26 @@ The system is built in two independent pipelines that combine at retrieval time.
 ```
 MedlinePlus XML
 → Parsing + English filtering
-→ HTML cleanup + metadata extraction
+→ HTML cleanup + metadata extraction (synonyms, see-references, MeSH, related topics)
 → Section-aware chunking
 → Embeddings + Chroma DB
 ```
 
 **Pipeline 2 — Input processing (online)**
 ```
-User input (question, report, article...)
-→ Biomedical NER (d4data/biomedical-ner-all)
-→ Extracted medical entities
+User input (clinical note, report, article...)
+→ Biomedical NER (samrawal/bert-base-uncased_clinical-ner)
+→ Entity extraction + stopword normalization + substring deduplication
 ```
 
 **Combined — Grounded retrieval**
 ```
-Extracted entities + Chroma DB
-→ Metadata-filtered vector retrieval
-→ Grounded passages per entity + source URL
+Extracted entities
+→ Semantic search (top-5 candidates)
+→ Validation gate: title / synonyms / see-references / MeSH matching
+→ Best topic selection (field priority → distance)
+→ Best chunk selection (closest embedding within winning topic)
+→ Grounded passage per entity + source URL
 ```
 
 Clean separation between:
@@ -49,6 +52,16 @@ Clean separation between:
 
 ---
 
+## Retrieval Design
+
+Retrieval uses a two-step approach to avoid pure semantic search limitations when matching short entity terms against long chunks:
+
+1. **Topic selection** — semantic search returns top-5 candidates, then a validation gate checks if the entity fuzzy-matches the topic title, synonyms (`also-called`), see-references, or MeSH terms. Among valid candidates, priority order is: title > synonyms > see-references > MeSH. Distance breaks ties within the same priority level.
+
+2. **Chunk selection** — once the best matching topic is identified, all chunks for that topic are fetched and the one closest to the entity embedding is returned.
+
+Entities with no valid match above the distance threshold surface as "no relevant information found" rather than returning a wrong result.
+
 ## Stack
 
 - Python 3.10
@@ -56,6 +69,8 @@ Clean separation between:
 - sentence-transformers — BAAI/bge-small-en-v1.5 (embeddings)
 - Chroma (vector store)
 - transformers — samrawal/bert-base-uncased_clinical-ner (NER)
+- rapidfuzz (fuzzy matching for validation gate)
+- pydantic-settings (centralized configuration)
 - FastAPI (service layer)
 - Docker (deployment)
 
@@ -77,76 +92,29 @@ Clean separation between:
 - [x] Section-aware chunking
 - [x] Chroma ingestion
 
-### Pipeline 2 — Input processing
-- [X] Biomedical NER (samrawal/bert-base-uncased_clinical-ner)
-- [X] Entity extraction + normalization
+### Pipeline 2 — Input processing (complete)
+- [x] Biomedical NER (samrawal/bert-base-uncased_clinical-ner)
+- [x] Entity extraction + stopword normalization + substring deduplication
 
-### Combined — Grounded retrieval
-- [ ] Entity-driven Chroma retrieval with metadata filtering
-- [ ] Grounded passage output per entity + source URL
+### Combined — Grounded retrieval (complete)
+- [x] Two-step retrieval: topic selection via validation gate + best chunk selection
+- [x] Field priority matching: title > synonyms > see-references > MeSH
+- [x] Grounded passage output per entity + source URL
+
+### In progress
 - [ ] FastAPI service layer (`/health`, `/extract`, `/retrieve`)
 - [ ] Gradio UI (entity highlighting + grounded results display)
-- [ ] Docker deployment (Chroma DB baked into image)
+- [ ] Docker deployment
 - [ ] Hugging Face Spaces deployment
 
 ### Optional extensions
+- [ ] DailyMed drug corpus — add brand/generic drug information to cover medication entities currently returning no match. SPL XML format, deduplicate by active ingredient, ingest into same Chroma collection with `source: dailymed` metadata flag.
+- [ ] MedlinePlus Connect API fallback — runtime fallback for entities not covered by local corpus
 - [ ] Answer generation (LLM grounded in retrieved chunks)
 - [ ] Bilingual support (FR/EN)
 - [ ] Topic graph expansion via related topics + linked mentions
 - [ ] Reranker / cross-encoder
 - [ ] Evaluation pipeline
-
----
-
-## Project Structure
-
-```
-app/
-  __init__.py
-  download_medlineplus.py  # fetches MedlinePlus XML corpus
-  parse_medlineplus.py     # XML parsing + metadata extraction
-  chunking.py              # section-aware chunking
-  ingest.py                # embedding + Chroma ingestion
-scripts/
-  inspect_download.py      # verify downloaded XML and manifest
-  inspect_parser.py        # verify parser output and field completeness
-  inspect_chunking.py      # verify chunk sizes and metadata
-  inspect_ingest.py        # verify Chroma collection state
-data/                      # gitignored — XML corpus + Chroma DB
-```
-
----
-
-## Setup
-
-```bash
-# Create conda environment
-conda create -n medical-rag python=3.10
-conda activate medical-rag
-
-# Install Poetry and dependencies
-pip install poetry
-poetry install
-
-# Download the corpus
-python app/download_medlineplus.py
-
-# Run ingestion
-python app/ingest.py
-```
-
----
-
-## Verification
-
-Run inspect scripts in order to verify each step:
-
-```bash
-python scripts/inspect_download.py
-python scripts/inspect_parser.py
-python scripts/inspect_chunking.py
-python scripts/inspect_ingest.py
-```
 
 ---
 

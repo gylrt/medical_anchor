@@ -7,7 +7,8 @@ class Settings(BaseSettings):
     embed_model: str = "BAAI/bge-small-en-v1.5"
     ner_model: str = "samrawal/bert-base-uncased_clinical-ner"
     ner_min_score: float = 0.95
-    max_distance: float = 0.5
+    max_distance: float = 0.25
+    mesh_match_threshold: float = 80.0
     batch_size: int = 256
 
     model_config = {"env_file": ".env"}

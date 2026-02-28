@@ -46,6 +46,8 @@ def build_all_chunks(topics):
             "mesh_terms": json.dumps([mh.term for mh in topic.mesh_headings]),
             "mesh_ids": json.dumps([mh.mesh_id for mh in topic.mesh_headings]),
             "related_topic_ids": json.dumps([rt.topic_id for rt in topic.related_topics]),
+            "synonyms": json.dumps(topic.synonyms),
+            "see_references": json.dumps(topic.see_references),
         }
         for section in topic.sections:
             chunks = build_chunks_for_section(

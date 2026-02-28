@@ -32,6 +32,7 @@ class Topic:
     title: str
     url: Optional[str]
     synonyms: List[str]
+    see_references: List[str]
     sections: List[TopicSection]
     language: str
     group_ids: List[str]
@@ -100,6 +101,7 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
     Extracts:
       - Summary text (plain, embedding-ready)
       - Group metadata, synonyms, linked mentions
+      - See-references
       - MeSH headings — controlled vocabulary for entity-driven filtering
       - Related topics — topic graph for future retrieval expansion
     """
@@ -126,13 +128,21 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
         if not title:
             continue
 
-        # ---- synonyms ----
+        # ---- synonyms (also-called field)----
         synonyms: List[str] = []
         for ac in ht.findall(".//also-called"):
             txt = _get_text(ac)
             if txt:
                 synonyms.append(txt)
         synonyms = list(dict.fromkeys(synonyms))
+
+        # ---- see-references (redirect terms) ----
+        see_references: List[str] = []
+        for sr in ht.findall(".//see-reference"):
+            txt = _get_text(sr)
+            if txt:
+                see_references.append(txt)
+        see_references = list(dict.fromkeys(see_references))
 
         # ---- groups ----
         group_ids: List[str] = []
@@ -147,7 +157,7 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
         group_ids = list(dict.fromkeys(group_ids))
         group_titles = list(dict.fromkeys(group_titles))
 
-        # ---- MeSH headings — standard medical taxonomy, maps to NER output ----
+        # ---- MeSH headings ----
         mesh_headings: List[MeshHeading] = []
         for mh in ht.findall("./mesh-heading"):
             descriptor = mh.find("./descriptor")
@@ -157,7 +167,7 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
                 if term:
                     mesh_headings.append(MeshHeading(mesh_id=mesh_id, term=term))
 
-        # ---- related topics — stored for future topic graph expansion ----
+        # ---- related topics ----
         related_topics: List[RelatedTopic] = []
         for rt in ht.findall("./related-topic"):
             rt_id = _attr(rt, "id")
@@ -193,6 +203,7 @@ def parse_medlineplus_topics(xml_path: str, english_only: bool = True) -> List[T
                 title=title,
                 url=url,
                 synonyms=synonyms,
+                see_references=see_references,
                 sections=sections,
                 language=(lang or "english") if english_only else (lang or "unknown"),
                 group_ids=group_ids,
