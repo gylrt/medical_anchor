@@ -8,8 +8,9 @@ class Settings(BaseSettings):
     ner_model: str = "samrawal/bert-base-uncased_clinical-ner"
     ner_min_score: float = 0.95
     max_distance: float = 0.25
-    mesh_match_threshold: float = 80.0
+    mesh_match_threshold: float = 85.0
     batch_size: int = 256
+    max_text_length: int = 10_000
 
     model_config = {"env_file": ".env"}
 
