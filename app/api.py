@@ -9,6 +9,7 @@ from sentence_transformers import SentenceTransformer
 from app.config import settings
 from app.ner import load_ner_pipeline, extract_entities, Entity
 from app.retrieval import load_collection, retrieve_for_entities
+from app.utils import extract_best_sentences
 
 
 @asynccontextmanager
@@ -37,13 +38,19 @@ class EntityResponse(BaseModel):
     score: float
 
 
+class EntitiesInput(BaseModel):
+    entities: List[EntityResponse]
+
+
 class RetrievalItem(BaseModel):
     entity: EntityResponse
     matched: bool
     topic_title: Optional[str] = None
     source_url: Optional[str] = None
     passage: Optional[str] = None
+    best_sentences: Optional[str] = None
     highlighted_passage: Optional[str] = None
+    highlighted_best_sentences: Optional[str] = None
     distance: Optional[float] = None
 
 
@@ -55,9 +62,41 @@ class RetrieveResponse(BaseModel):
     results: List[RetrievalItem]
 
 
-def _highlight(entity_text: str, passage: str) -> str:
+def _validate_text(text: str):
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="Input text cannot be empty.")
+    if len(text) > settings.max_text_length:
+        raise HTTPException(status_code=422, detail=f"Input text too long. Maximum {settings.max_text_length} characters.")
+
+
+def _highlight(entity_text: str, text: str) -> str:
     pattern = re.compile(r"\b" + re.escape(entity_text) + r"\b", re.IGNORECASE)
-    return pattern.sub(lambda m: f"<strong>{m.group()}</strong>", passage)
+    return pattern.sub(lambda m: f"<strong>{m.group()}</strong>", text)
+
+
+def _build_retrieval_response(entities: List[Entity], app_state) -> RetrieveResponse:
+    if not entities:
+        return RetrieveResponse(results=[])
+    results = retrieve_for_entities(entities, app_state.collection, app_state.embed_model)
+    items = []
+    for r in results:
+        best_sentences, highlighted_passage, highlighted_best = None, None, None
+        if r.matched and r.passage:
+            best_sentences = extract_best_sentences(r.entity.text, r.passage, app_state.embed_model)
+            highlighted_passage = _highlight(r.entity.text, r.passage)
+            highlighted_best = _highlight(r.entity.text, best_sentences)
+        items.append(RetrievalItem(
+            entity=EntityResponse(text=r.entity.text, label=r.entity.label, score=r.entity.score),
+            matched=r.matched,
+            topic_title=r.topic_title,
+            source_url=r.source_url,
+            passage=r.passage,
+            best_sentences=best_sentences,
+            highlighted_passage=highlighted_passage,
+            highlighted_best_sentences=highlighted_best,
+            distance=r.distance,
+        ))
+    return RetrieveResponse(results=items)
 
 
 @app.get("/health")
@@ -67,11 +106,8 @@ def health():
 
 @app.post("/extract", response_model=ExtractResponse)
 def extract(body: TextInput):
-    if not body.text.strip():
-        raise HTTPException(status_code=422, detail="Input text cannot be empty.")
-    if len(body.text) > settings.max_text_length:
-        raise HTTPException(status_code=422, detail=f"Input text too long. Maximum {settings.max_text_length} characters.")
-    entities: List[Entity] = extract_entities(body.text, app.state.ner_pipeline)
+    _validate_text(body.text)
+    entities = extract_entities(body.text, app.state.ner_pipeline)
     return ExtractResponse(
         entities=[EntityResponse(text=e.text, label=e.label, score=e.score) for e in entities]
     )
@@ -79,25 +115,16 @@ def extract(body: TextInput):
 
 @app.post("/retrieve", response_model=RetrieveResponse)
 def retrieve(body: TextInput):
-    if not body.text.strip():
-        raise HTTPException(status_code=422, detail="Input text cannot be empty.")
-    if len(body.text) > settings.max_text_length:
-        raise HTTPException(status_code=422, detail=f"Input text too long. Maximum {settings.max_text_length} characters.")
+    """Full pipeline — extracts entities then retrieves. Useful for direct API calls."""
+    _validate_text(body.text)
     entities = extract_entities(body.text, app.state.ner_pipeline)
-    if not entities:
+    return _build_retrieval_response(entities, app.state)
+
+
+@app.post("/retrieve-from-entities", response_model=RetrieveResponse)
+def retrieve_from_entities(body: EntitiesInput):
+    """Retrieval only — skips NER, uses pre-extracted entities from /extract."""
+    if not body.entities:
         return RetrieveResponse(results=[])
-    results = retrieve_for_entities(entities, app.state.collection, app.state.embed_model)
-    return RetrieveResponse(
-        results=[
-            RetrievalItem(
-                entity=EntityResponse(text=r.entity.text, label=r.entity.label, score=r.entity.score),
-                matched=r.matched,
-                topic_title=r.topic_title,
-                source_url=r.source_url,
-                passage=r.passage,
-                highlighted_passage=_highlight(r.entity.text, r.passage) if r.matched and r.passage else None,
-                distance=r.distance,
-            )
-            for r in results
-        ]
-    )
+    entities = [Entity(text=e.text, label=e.label, score=e.score) for e in body.entities]
+    return _build_retrieval_response(entities, app.state)

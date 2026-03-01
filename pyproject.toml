@@ -20,6 +20,8 @@ torch = ">=2.0.0,<2.10.0"
 nltk = "^3.9.3"
 pydantic-settings = "^2.13.1"
 rapidfuzz = "^3.14.3"
+gradio = "^6.8.0"
+httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=9.0.2,<10.0.0"
