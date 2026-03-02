@@ -11,6 +11,8 @@ app_port: 7860
 
 A grounded medical information system for biomedical text analysis.
 
+### **[Live demo on Hugging Face Spaces](https://huggingface.co/spaces/gylrt/medical-anchor)**
+
 Given any text input — a clinical note, a social media post, a medical report — the system extracts biomedical entities and retrieves trusted, structured information about each one from official sources. Results are grounded strictly in retrieved evidence with full citations.
 
 The system does not answer questions or generate text. It identifies what medical terms are present in your input and surfaces what MedlinePlus says about them.
