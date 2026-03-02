@@ -1,3 +1,12 @@
+---
+title: Medical Anchor
+emoji: ⚕️
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+---
+
 # Medical Anchor
 
 A grounded medical information system for biomedical text analysis.
@@ -10,117 +19,75 @@ The system does not answer questions or generate text. It identifies what medica
 
 ## Data Source
 
-**MedlinePlus Health Topics** — official XML corpus published by the U.S. National Library of Medicine.
-
-Covers thousands of health topics with curated summaries, categorized sections, and structured metadata.
+**MedlinePlus Health Topics** — official XML corpus published by the U.S. National Library of Medicine. Covers thousands of health topics with curated summaries, categorized sections, and structured metadata.
 
 ---
 
 ## Architecture
-
-The system is built in two independent pipelines that combine at retrieval time.
 
 **Pipeline 1 — Data (offline batch)**
 ```
 MedlinePlus XML
 → Parsing + English filtering
 → HTML cleanup + metadata extraction (synonyms, see-references, MeSH, related topics)
-→ Section-aware chunking
-→ Embeddings + Chroma DB
+→ Section-aware chunking (prefixed with topic title + section name for richer embeddings)
+→ Embeddings + Chroma DB (small chunk embedded, full parent passage stored in metadata)
 ```
 
-**Pipeline 2 — Input processing (online)**
+**Pipeline 2 — Online**
 ```
-User input (clinical note, report, article...)
+User input
 → Biomedical NER (samrawal/bert-base-uncased_clinical-ner)
-→ Entity extraction + stopword normalization + substring deduplication
-```
-
-**Combined — Grounded retrieval**
-```
-Extracted entities
 → Semantic search (top-5 candidates)
 → Validation gate: title / synonyms / see-references / MeSH matching
 → Best topic selection (field priority → distance)
 → Best chunk selection (closest embedding within winning topic)
+→ Best sentence extraction (forward neighbor)
 → Grounded passage per entity + source URL
 ```
 
-Clean separation between:
-- **Ingestion** — offline batch process
-- **Retrieval API** — read-only, online service
+**Retrieval detail** — two-step approach to avoid pure semantic search limitations on short entity terms:
+1. Validation gate fuzzy-matches entity against topic metadata. Priority: title > synonyms > see-references > MeSH. Falls back to distance threshold if no metadata match.
+2. Once topic is selected, all its chunks are fetched and re-ranked by embedding distance to find the most relevant passage.
 
 ---
-
-## Retrieval Design
-
-Retrieval uses a two-step approach to avoid pure semantic search limitations when matching short entity terms against long chunks:
-
-1. **Topic selection** — semantic search returns top-5 candidates, then a validation gate checks if the entity fuzzy-matches the topic title, synonyms (`also-called`), see-references, or MeSH terms. Among valid candidates, priority order is: title > synonyms > see-references > MeSH. Distance breaks ties within the same priority level.
-
-2. **Chunk selection** — once the best matching topic is identified, all chunks for that topic are fetched and the one closest to the entity embedding is returned.
-
-Entities with no valid match above the distance threshold surface as "no relevant information found" rather than returning a wrong result.
 
 ## Stack
 
-- Python 3.10
-- Poetry (dependency management)
-- sentence-transformers — BAAI/bge-small-en-v1.5 (embeddings)
-- Chroma (vector store)
-- transformers — samrawal/bert-base-uncased_clinical-ner (NER)
-- rapidfuzz (fuzzy matching for validation gate)
-- pydantic-settings (centralized configuration)
-- FastAPI (service layer)
-- Docker (deployment)
-
----
+- Python 3.11, Poetry
+- sentence-transformers — BAAI/bge-small-en-v1.5
+- transformers — samrawal/bert-base-uncased_clinical-ner
+- Chroma, rapidfuzz, pydantic-settings
+- FastAPI + uvicorn, Gradio + httpx
+- Docker + supervisord (two-process single container)
 
 ## Models
 - [BAAI/bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) — MIT License
-- [samrawal/bert-base-uncased_clinical-ner](https://huggingface.co/samrawal/bert-base-uncased_clinical-ner) — Apache 2.0 — trained on i2b2/n2c2 2010 clinical NER dataset
+- [samrawal/bert-base-uncased_clinical-ner](https://huggingface.co/samrawal/bert-base-uncased_clinical-ner) — Apache 2.0
+
+## API Endpoints
+
+- `GET /health` — readiness check
+- `POST /extract` — NER only
+- `POST /retrieve` — full pipeline
+- `POST /retrieve-from-entities` — retrieval only, skips NER
 
 ---
 
-## Project Status
+## Known Limitations
 
-### Pipeline 1 — Data (complete)
-- [x] MedlinePlus XML download
-- [x] Parsing + English filtering
-- [x] HTML cleanup and text normalization
-- [x] Synonyms, group metadata, MeSH headings, related topics extraction
-- [x] Section-aware chunking
-- [x] Chroma ingestion
-
-### Pipeline 2 — Input processing (complete)
-- [x] Biomedical NER (samrawal/bert-base-uncased_clinical-ner)
-- [x] Entity extraction + stopword normalization + substring deduplication
-
-### Combined — Grounded retrieval (complete)
-- [x] Two-step retrieval: topic selection via validation gate + best chunk selection
-- [x] Field priority matching: title > synonyms > see-references > MeSH
-- [x] Grounded passage output per entity + source URL
-
-### In progress
-- [ ] FastAPI service layer (`/health`, `/extract`, `/retrieve`)
-- [ ] Gradio UI (entity highlighting + grounded results display)
-- [ ] Docker deployment
-- [ ] Hugging Face Spaces deployment
-
-### Optional extensions
-- [ ] DailyMed drug corpus — add brand/generic drug information to cover medication entities currently returning no match. SPL XML format, deduplicate by active ingredient, ingest into same Chroma collection with `source: dailymed` metadata flag.
-- [ ] MedlinePlus Connect API fallback — runtime fallback for entities not covered by local corpus
-- [ ] Answer generation (LLM grounded in retrieved chunks)
-- [ ] Bilingual support (FR/EN)
-- [ ] Topic graph expansion via related topics + linked mentions
-- [ ] Reranker / cross-encoder
-- [ ] Evaluation pipeline
+- **NER noise** — clinical NER occasionally extracts non-medical entities. Threshold tunable via `ner_min_score`.
+- **Corpus gaps** — medications not covered by MedlinePlus topics. DailyMed extension planned.
+- **Fuzzy matching** — `partial_ratio` can produce false positives on shared substrings. Switching to `token_sort_ratio` at threshold 75 noted as future improvement.
+- **Cold start** — model loading ~60s on CPU. UI polls `/health` and disables Analyze button until ready.
 
 ---
 
-## Design Philosophy
+## Optional Extensions
 
-- **Grounding first** — output references retrieved evidence only, no generation
-- **Entity-router pattern** — NER entities drive retrieval filtering, not pure semantic search
-- **Metadata-aware** — MeSH headings, section tags, topic groups, and linked mentions inform retrieval
-- **Incremental engineering** — clean interfaces, testable steps, deployment-ready structure
+- DailyMed drug corpus (brand/generic medication coverage)
+- MedlinePlus Connect API fallback
+- Cross-encoder reranking
+- Answer generation (LLM grounded in retrieved chunks)
+- Evaluation pipeline
+- Bilingual support (FR/EN)

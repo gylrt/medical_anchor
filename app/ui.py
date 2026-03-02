@@ -159,6 +159,24 @@ def _build_results_html(results: list) -> str:
     return "\n".join(cards)
 
 
+def check_ready():
+    try:
+        r = httpx.get(f"{API_BASE}/health", timeout=2)
+        if r.status_code == 200:
+            return (
+                gr.update(value="✓ Models loaded — ready to analyze."),
+                gr.update(interactive=True),
+                gr.update(active=False),
+            )
+    except Exception:
+        pass
+    return (
+        gr.update(value="⏳ Loading models, please wait..."),
+        gr.update(interactive=False),
+        gr.update(active=True),
+    )
+
+
 def analyze(text: str):
     if not text.strip():
         return "<p style='color:var(--body-text-color);opacity:0.4'>Enter text above to analyze.</p>"
@@ -174,7 +192,7 @@ def analyze(text: str):
     return f"{annotation}<hr style='margin:24px 0;opacity:0.15'>{results_html}"
 
 
-with gr.Blocks(css=CSS, title="Medical Anchor") as demo:
+with gr.Blocks(title="Medical Anchor") as demo:
     gr.Markdown("# Medical Anchor\nGrounded medical entity extraction and retrieval from MedlinePlus.")
 
     text_input = gr.Textbox(
@@ -182,14 +200,13 @@ with gr.Blocks(css=CSS, title="Medical Anchor") as demo:
         value="Patient has asthma and hypertension, currently on claritin and lisinopril.",
         lines=6,
     )
-    analyze_btn = gr.Button("Analyze", variant="primary")
+    analyze_btn = gr.Button("Analyze", variant="primary", interactive=False)
+    status = gr.Markdown("⏳ Loading models, please wait...")
     output = gr.HTML()
 
-    analyze_btn.click(
-        fn=analyze,
-        inputs=text_input,
-        outputs=output,
-    )
+    analyze_btn.click(fn=analyze, inputs=text_input, outputs=output)
+    timer = gr.Timer(3, active=True)
+    timer.tick(fn=check_ready, outputs=[status, analyze_btn, timer])
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(css=CSS, server_name="0.0.0.0", server_port=7860)
