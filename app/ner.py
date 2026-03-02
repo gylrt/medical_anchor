@@ -3,14 +3,22 @@ from typing import List
 from dataclasses import dataclass
 
 import nltk
+from nltk.data import find
 from nltk.corpus import stopwords
 from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
 
 from app.config import settings
 
-nltk.download("stopwords", quiet=True)
+try:
+    find("corpora/stopwords")
+except LookupError:
+    nltk.download("stopwords", quiet=True)
 
-_STOPWORDS = set(stopwords.words("english"))
+try:
+    _STOPWORDS = set(stopwords.words("english"))
+except LookupError:
+    # Minimal fallback to keep extraction functional if corpus is unavailable.
+    _STOPWORDS = {"a", "an", "the", "and", "or", "of", "to", "in", "on", "for", "with"}
 
 
 @dataclass

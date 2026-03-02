@@ -1,4 +1,5 @@
 import re
+import html
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
@@ -70,8 +71,12 @@ def _validate_text(text: str):
 
 
 def _highlight(entity_text: str, text: str) -> str:
-    pattern = re.compile(r"\b" + re.escape(entity_text) + r"\b", re.IGNORECASE)
-    return pattern.sub(lambda m: f"<strong>{m.group()}</strong>", text)
+    safe_text = html.escape(text or "")
+    safe_entity = html.escape(entity_text or "")
+    if not safe_text or not safe_entity:
+        return safe_text
+    pattern = re.compile(r"\b" + re.escape(safe_entity) + r"\b", re.IGNORECASE)
+    return pattern.sub(lambda m: f"<strong>{m.group()}</strong>", safe_text)
 
 
 def _build_retrieval_response(entities: List[Entity], app_state) -> RetrieveResponse:

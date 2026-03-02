@@ -1,8 +1,11 @@
 import re
+import html
+import os
+from urllib.parse import urlparse
 import httpx
 import gradio as gr
 
-API_BASE = "http://localhost:8000"
+API_BASE = os.getenv("API_BASE", "http://localhost:8000")
 
 CSS = """
 .annotated { font-size: 1rem; line-height: 2.4; color: var(--body-text-color); }
@@ -66,31 +69,49 @@ def _card_id(entity_text: str) -> str:
     return "card-" + re.sub(r'\W+', '-', entity_text.lower()).strip('-')
 
 
+def _safe_url(url: str) -> str:
+    parsed = urlparse(url or "")
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return url
+    return ""
+
+
+def _highlight_escaped_text(text: str, entity_text: str) -> str:
+    escaped_text = html.escape(text or "")
+    escaped_entity = html.escape(entity_text or "")
+    if not escaped_text or not escaped_entity:
+        return escaped_text
+    pattern = re.compile(re.escape(escaped_entity), re.IGNORECASE)
+    return pattern.sub(lambda m: f"<strong>{m.group(0)}</strong>", escaped_text)
+
+
 def _build_annotation_html(input_text: str, results: list) -> str:
     matched_map = {r["entity"]["text"]: r["matched"] for r in results}
     label_map = {r["entity"]["text"]: r["entity"]["label"] for r in results}
     entities_sorted = sorted(matched_map.keys(), key=len, reverse=True)
 
-    annotated = input_text
+    annotated = html.escape(input_text or "")
     placeholders = {}
     for i, entity_text in enumerate(entities_sorted):
         status = "matched" if matched_map[entity_text] else "unmatched"
-        label = label_map.get(entity_text, "")
+        safe_entity = html.escape(entity_text)
+        label = html.escape(label_map.get(entity_text, ""))
         if matched_map[entity_text]:
             chip = (
                 f'<a class="entity {status}" href="#{_card_id(entity_text)}">'
-                f'{entity_text} <span class="label">{label}</span>'
+                f'{safe_entity} <span class="label">{label}</span>'
                 f'</a>'
             )
         else:
             chip = (
                 f'<span class="entity {status}">'
-                f'{entity_text} <span class="label">{label}</span>'
+                f'{safe_entity} <span class="label">{label}</span>'
                 f'</span>'
             )
         placeholder = f"__ENTITY_{i}__"
         placeholders[placeholder] = chip
-        annotated = re.sub(r'\b' + re.escape(entity_text) + r'\b', placeholder, annotated, flags=re.IGNORECASE)
+        escaped_entity = html.escape(entity_text)
+        annotated = re.sub(r'\b' + re.escape(escaped_entity) + r'\b', placeholder, annotated, flags=re.IGNORECASE)
 
     for placeholder, chip in placeholders.items():
         annotated = annotated.replace(placeholder, chip)
@@ -116,20 +137,27 @@ def _build_results_html(results: list) -> str:
 
     cards = []
     for r in matched:
-        entity = r["entity"]["text"]
-        label = r["entity"]["label"]
-        best = r.get("highlighted_best_sentences") or r.get("highlighted_passage") or ""
-        full = r.get("highlighted_passage") or ""
-        topic = r.get("topic_title", "")
-        url = r.get("source_url", "")
-        url_display = url.replace("https://", "").rstrip("/")
+        entity_raw = r["entity"]["text"]
+        entity = html.escape(entity_raw)
+        label = html.escape(r["entity"]["label"])
+        best_source = r.get("best_sentences") or r.get("passage") or ""
+        full_source = r.get("passage") or ""
+        best = _highlight_escaped_text(best_source, entity_raw)
+        full = _highlight_escaped_text(full_source, entity_raw)
+        topic = html.escape(r.get("topic_title", ""))
+        safe_url = _safe_url(r.get("source_url", ""))
+        url_display = html.escape(safe_url.replace("https://", "").replace("http://", "").rstrip("/"))
 
         expand = ""
         if full and full != best:
             expand = f'<details><summary></summary><div class="full-passage">{full}</div></details>'
+        url_block = (
+            f'<div class="card-url"><a href="{safe_url}" target="_blank" rel="noopener noreferrer">Source: {url_display}</a></div>'
+            if safe_url else ""
+        )
 
         cards.append(f"""
-        <div class="card" id="{_card_id(entity)}">
+        <div class="card" id="{_card_id(entity_raw)}">
           <div class="card-header">
             <span class="card-entity">{entity}</span>
             <span class="card-label">{label}</span>
@@ -137,15 +165,15 @@ def _build_results_html(results: list) -> str:
           <div class="card-topic"><span style="opacity:0.5;font-size:0.85em;font-weight:400;">Related MedlinePlus Health Topic : </span> <span>{topic}</span></div>
           <div class="card-passage">{best}</div>
           {expand}
-          <div class="card-url"><a href="{url}" target="_blank">↗ {url_display}</a></div>
+          {url_block}
         </div>""")
 
     if unmatched:
         unmatched_cards = "\n".join(f"""
         <div class="card">
           <div class="card-header">
-            <span class="card-entity">{r["entity"]["text"]}</span>
-            <span class="card-label">{r["entity"]["label"]}</span>
+            <span class="card-entity">{html.escape(r["entity"]["text"])}</span>
+            <span class="card-label">{html.escape(r["entity"]["label"])}</span>
           </div>
           <div class="no-match">No relevant information found in database.</div>
         </div>""" for r in unmatched)
@@ -184,8 +212,8 @@ def analyze(text: str):
         response = httpx.post(f"{API_BASE}/retrieve", json={"text": text}, timeout=60)
         response.raise_for_status()
         results = response.json()["results"]
-    except Exception as e:
-        return f"<p style='color:red'>API error: {e}</p>"
+    except Exception:
+        return "<p style='color:red'>API error: request failed.</p>"
 
     annotation = _build_annotation_html(text, results)
     results_html = _build_results_html(results)
