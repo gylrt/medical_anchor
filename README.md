@@ -1,12 +1,3 @@
----
-title: Medical Anchor
-emoji: ⚕️
-colorFrom: blue
-colorTo: green
-sdk: docker
-app_port: 7860
----
-
 # Medical Anchor
 
 A grounded medical information system for biomedical text analysis.
