@@ -26,6 +26,8 @@ class Entity:
     text: str
     label: str
     score: float
+    start: int | None = None
+    end: int | None = None
 
 
 def load_ner_pipeline(model_name: str = settings.ner_model):
@@ -67,15 +69,33 @@ def normalize_entities(entities: List[Entity]) -> List[Entity]:
         if not _is_meaningful(normalized) or normalized.lower() in seen:
             continue
         seen.add(normalized.lower())
-        cleaned.append(Entity(text=normalized, label=e.label, score=e.score))
+        cleaned.append(Entity(
+            text=normalized,
+            label=e.label,
+            score=e.score,
+            start=e.start,
+            end=e.end,
+        ))
     return _deduplicate(cleaned)
 
 
 def extract_entities(text: str, ner_pipeline, min_score: float = settings.ner_min_score) -> List[Entity]:
     results = ner_pipeline(text)
-    entities = [
-        Entity(text=r["word"].strip(), label=r["entity_group"], score=round(r["score"], 3))
-        for r in results
-        if r["score"] >= min_score and _is_valid(r["word"].strip())
-    ]
+    entities = []
+    for r in results:
+        raw = r["word"].strip()
+        if r["score"] < min_score or not _is_valid(raw):
+            continue
+        start = r.get("start")
+        end = r.get("end")
+        surface = raw
+        if isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= len(text):
+            surface = text[start:end]
+        entities.append(Entity(
+            text=surface,
+            label=r["entity_group"],
+            score=round(r["score"], 3),
+            start=start if isinstance(start, int) else None,
+            end=end if isinstance(end, int) else None,
+        ))
     return normalize_entities(entities)

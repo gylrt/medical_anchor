@@ -37,6 +37,8 @@ class EntityResponse(BaseModel):
     text: str
     label: str
     score: float
+    start: Optional[int] = None
+    end: Optional[int] = None
 
 
 class EntitiesInput(BaseModel):
@@ -91,7 +93,13 @@ def _build_retrieval_response(entities: List[Entity], app_state) -> RetrieveResp
             highlighted_passage = _highlight(r.entity.text, r.passage)
             highlighted_best = _highlight(r.entity.text, best_sentences)
         items.append(RetrievalItem(
-            entity=EntityResponse(text=r.entity.text, label=r.entity.label, score=r.entity.score),
+            entity=EntityResponse(
+                text=r.entity.text,
+                label=r.entity.label,
+                score=r.entity.score,
+                start=r.entity.start,
+                end=r.entity.end,
+            ),
             matched=r.matched,
             topic_title=r.topic_title,
             source_url=r.source_url,
@@ -114,7 +122,16 @@ def extract(body: TextInput):
     _validate_text(body.text)
     entities = extract_entities(body.text, app.state.ner_pipeline)
     return ExtractResponse(
-        entities=[EntityResponse(text=e.text, label=e.label, score=e.score) for e in entities]
+        entities=[
+            EntityResponse(
+                text=e.text,
+                label=e.label,
+                score=e.score,
+                start=e.start,
+                end=e.end,
+            )
+            for e in entities
+        ]
     )
 
 
@@ -131,5 +148,14 @@ def retrieve_from_entities(body: EntitiesInput):
     """Retrieval only — skips NER, uses pre-extracted entities from /extract."""
     if not body.entities:
         return RetrieveResponse(results=[])
-    entities = [Entity(text=e.text, label=e.label, score=e.score) for e in body.entities]
+    entities = [
+        Entity(
+            text=e.text,
+            label=e.label,
+            score=e.score,
+            start=e.start,
+            end=e.end,
+        )
+        for e in body.entities
+    ]
     return _build_retrieval_response(entities, app.state)

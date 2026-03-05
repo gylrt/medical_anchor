@@ -86,35 +86,49 @@ def _highlight_escaped_text(text: str, entity_text: str) -> str:
 
 
 def _build_annotation_html(input_text: str, results: list) -> str:
-    matched_map = {r["entity"]["text"]: r["matched"] for r in results}
-    label_map = {r["entity"]["text"]: r["entity"]["label"] for r in results}
-    entities_sorted = sorted(matched_map.keys(), key=len, reverse=True)
+    text = input_text or ""
+    spans = []
+    for r in results:
+        entity = r.get("entity", {})
+        entity_text = entity.get("text", "")
+        start = entity.get("start")
+        end = entity.get("end")
+        if not (isinstance(start, int) and isinstance(end, int)):
+            continue
+        if not (0 <= start < end <= len(text)):
+            continue
 
-    annotated = html.escape(input_text or "")
-    placeholders = {}
-    for i, entity_text in enumerate(entities_sorted):
-        status = "matched" if matched_map[entity_text] else "unmatched"
-        safe_entity = html.escape(entity_text)
-        label = html.escape(label_map.get(entity_text, ""))
-        if matched_map[entity_text]:
+        status = "matched" if r.get("matched") else "unmatched"
+        label = html.escape(entity.get("label", ""))
+        display = html.escape(text[start:end])
+        if r.get("matched"):
             chip = (
                 f'<a class="entity {status}" href="#{_card_id(entity_text)}">'
-                f'{safe_entity} <span class="label">{label}</span>'
+                f'{display} <span class="label">{label}</span>'
                 f'</a>'
             )
         else:
             chip = (
                 f'<span class="entity {status}">'
-                f'{safe_entity} <span class="label">{label}</span>'
+                f'{display} <span class="label">{label}</span>'
                 f'</span>'
             )
-        placeholder = f"__ENTITY_{i}__"
-        placeholders[placeholder] = chip
-        escaped_entity = html.escape(entity_text)
-        annotated = re.sub(r'\b' + re.escape(escaped_entity) + r'\b', placeholder, annotated, flags=re.IGNORECASE)
+        spans.append((start, end, chip))
 
-    for placeholder, chip in placeholders.items():
-        annotated = annotated.replace(placeholder, chip)
+    if not spans:
+        annotated = html.escape(text)
+    else:
+        spans.sort(key=lambda x: (x[0], -(x[1] - x[0])))
+        parts = []
+        cursor = 0
+        for start, end, chip in spans:
+            if start < cursor:
+                continue
+            parts.append(html.escape(text[cursor:start]))
+            parts.append(chip)
+            cursor = end
+        parts.append(html.escape(text[cursor:]))
+        annotated = "".join(parts)
 
     legend = """
     <div class="legend">
