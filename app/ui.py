@@ -6,6 +6,7 @@ import httpx
 import gradio as gr
 
 API_BASE = os.getenv("API_BASE", "http://localhost:8000")
+DAILYMED_PREVIEW_SENTENCES = 2
 
 CSS = """
 .annotated { font-size: 1rem; line-height: 2.4; color: var(--body-text-color); }
@@ -85,6 +86,31 @@ def _highlight_escaped_text(text: str, entity_text: str) -> str:
     return pattern.sub(lambda m: f"<strong>{m.group(0)}</strong>", escaped_text)
 
 
+def _first_n_sentences(text: str, n: int = DAILYMED_PREVIEW_SENTENCES) -> str:
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    parts = re.split(r"(?<=[.!?])\s+", raw)
+    parts = [p.strip() for p in parts if p.strip()]
+    if not parts:
+        return raw
+    return " ".join(parts[:n])
+
+
+def _clean_dailymed_passage(text: str) -> str:
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    kept = []
+    for ln in lines:
+        low = ln.lower()
+        if low.startswith("title:") or low.startswith("section:"):
+            continue
+        kept.append(ln)
+    return " ".join(kept).strip()
+
+
 def _build_annotation_html(input_text: str, results: list) -> str:
     text = input_text or ""
     spans = []
@@ -153,22 +179,52 @@ def _build_results_html(results: list) -> str:
     for r in matched:
         entity_raw = r["entity"]["text"]
         entity = html.escape(entity_raw)
+        label_raw = (r["entity"].get("label") or "").strip().lower()
         label = html.escape(r["entity"]["label"])
-        best_source = r.get("best_sentences") or r.get("passage") or ""
-        full_source = r.get("passage") or ""
+        is_dailymed = label_raw == "treatment"
+        if is_dailymed:
+            raw_chunk = (r.get("passage") or "").strip()
+            cleaned = _clean_dailymed_passage(raw_chunk)
+            snippet = _first_n_sentences(cleaned, DAILYMED_PREVIEW_SENTENCES)
+            best_source = f"INDICATIONS AND USAGE: {snippet}" if snippet else ""
+            full_source = raw_chunk
+        else:
+            best_source = r.get("best_sentences") or r.get("passage") or ""
+            full_source = r.get("passage") or ""
         best = _highlight_escaped_text(best_source, entity_raw)
         full = _highlight_escaped_text(full_source, entity_raw)
         topic = html.escape(r.get("topic_title", ""))
+        generic_name = html.escape((r.get("generic_name") or "").strip())
         safe_url = _safe_url(r.get("source_url", ""))
         url_display = html.escape(safe_url.replace("https://", "").replace("http://", "").rstrip("/"))
 
         expand = ""
-        if full and full != best:
+        if is_dailymed and full:
+            expand = f'<details><summary></summary><div class="full-passage">{full}</div></details>'
+        elif full and full != best:
             expand = f'<details><summary></summary><div class="full-passage">{full}</div></details>'
         url_block = (
             f'<div class="card-url"><a href="{safe_url}" target="_blank" rel="noopener noreferrer">Source: {url_display}</a></div>'
             if safe_url else ""
         )
+        if is_dailymed:
+            generic = (
+                ' <span style="opacity:0.5;font-size:0.85em;font-weight:400;">'
+                f'| Generic name: </span><span>{generic_name}</span>'
+                if generic_name else ""
+            )
+            topic_block = (
+                '<div class="card-topic">'
+                '<span style="opacity:0.5;font-size:0.85em;font-weight:400;">Related DailyMed product: </span> '
+                f'<span>{topic}</span>{generic}'
+                '</div>'
+            )
+        else:
+            topic_block = (
+                '<div class="card-topic"><span style="opacity:0.5;font-size:0.85em;font-weight:400;">'
+                'Related MedlinePlus Health Topic : </span> '
+                f'<span>{topic}</span></div>'
+            )
 
         cards.append(f"""
         <div class="card" id="{_card_id(entity_raw)}">
@@ -176,7 +232,7 @@ def _build_results_html(results: list) -> str:
             <span class="card-entity">{entity}</span>
             <span class="card-label">{label}</span>
           </div>
-          <div class="card-topic"><span style="opacity:0.5;font-size:0.85em;font-weight:400;">Related MedlinePlus Health Topic : </span> <span>{topic}</span></div>
+          {topic_block}
           <div class="card-passage">{best}</div>
           {expand}
           {url_block}
@@ -239,7 +295,13 @@ with gr.Blocks(title="Medical Anchor") as demo:
 
     text_input = gr.Textbox(
         label="Clinical text",
-        value="Patient has asthma and hypertension, currently on claritin and lisinopril.",
+        value=(
+            "44-year-old female with Sjögren’s syndrome, ADHD, insomnia, anxiety, and depression reports a burning skin in the "
+            "evenings. The skin becomes very hot and painful before visible redness appears, especially where skin is in contact "
+            "with clothing. Current medications include Seroquel 150 mg, lamotrigine 200 mg, Adderall 25 mg, omeprazole, "
+            "cevimeline 30 mg, and oxybutynin 10 mg. She was evaluated by primary care and dermatology, and lupus was discussed "
+            "as a possible contributor but remains unconfirmed."
+        ),
         lines=6,
     )
     analyze_btn = gr.Button("Analyze", variant="primary", interactive=False)

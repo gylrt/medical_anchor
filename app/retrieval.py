@@ -22,10 +22,7 @@ _DAILYMED_FIELD_PRIORITY = {"normalized_names": 0, "title": 1, "synonyms": 2}
 
 _TREATMENT_LABELS = {"treatment"}
 _MEDLINE_LABELS = {"problem", "test"}
-_DAILYMED_INDEX_CACHE: Dict[int, Dict[str, dict]] = {}
-_DAILYMED_ALIAS_CACHE: Dict[int, Dict[str, dict]] = {}
 _DAILYMED_MATCH_CACHE: Dict[Tuple[int, str], Optional[tuple]] = {}
-_DAILYMED_INDEX_PAGE_SIZE = 5000
 _DAILYMED_NAME_INDEX_CACHE: Optional[dict] = None
 _DAILYMED_FOLDER_PRIORITY = {
     "otc": 0,
@@ -76,10 +73,6 @@ def _match_priority(entity_text: str, meta: dict) -> Optional[int]:
         if any(fuzz.partial_ratio(e, t.lower()) >= MATCH_THRESHOLD for t in terms):
             return _FIELD_PRIORITY[field]
     return None
-
-
-def _is_valid_match(entity_text: str, meta: dict) -> bool:
-    return _match_priority(entity_text, meta) is not None
 
 
 def _normalize_text(s: str) -> str:
@@ -181,102 +174,6 @@ def _select_target(entity: Entity, medline_collection: chromadb.Collection, dail
         return medline_collection, "medlineplus"
     # Safe default for unknown labels.
     return medline_collection, "medlineplus"
-
-
-def _get_dailymed_topic_index(collection: chromadb.Collection) -> Dict[str, dict]:
-    cache_key = id(collection)
-    if cache_key in _DAILYMED_INDEX_CACHE:
-        return _DAILYMED_INDEX_CACHE[cache_key]
-
-    topics: Dict[str, dict] = {}
-    offset = 0
-    while True:
-        res = collection.get(
-            include=["metadatas", "documents"],
-            limit=_DAILYMED_INDEX_PAGE_SIZE,
-            offset=offset,
-        )
-        metadatas = res.get("metadatas", [])
-        documents = res.get("documents", [])
-        if not metadatas:
-            break
-
-        for meta, doc in zip(metadatas, documents):
-            if not meta:
-                continue
-            topic_id = meta.get("topic_id")
-            if not topic_id:
-                continue
-
-            row = topics.get(topic_id)
-            section_tag = meta.get("section_tag", "")
-            current_is_indications = bool(row and row.get("section_tag") == "indications")
-            new_is_indications = section_tag == "indications"
-
-            if row is not None and current_is_indications and not new_is_indications:
-                continue
-
-            row = {
-                "meta": meta,
-                "doc": doc,
-                "section_tag": section_tag,
-                "title_norm": _normalize_text(meta.get("topic_title", "")),
-                "names_norm": _dailymed_normalized_names(meta),
-                "synonyms_norm": [_normalize_text(s) for s in json.loads(meta.get("synonyms", "[]")) if s],
-                "token_set": set(),
-            }
-            row["token_set"] = set(
-                " ".join([row["title_norm"]] + row["names_norm"] + row["synonyms_norm"]).split()
-            )
-            topics[topic_id] = row
-
-        offset += _DAILYMED_INDEX_PAGE_SIZE
-
-    _DAILYMED_INDEX_CACHE[cache_key] = topics
-    return topics
-
-
-def _get_dailymed_alias_cache(collection: chromadb.Collection) -> Dict[str, dict]:
-    cache_key = id(collection)
-    if cache_key in _DAILYMED_ALIAS_CACHE:
-        return _DAILYMED_ALIAS_CACHE[cache_key]
-
-    topics = _get_dailymed_topic_index(collection)
-    normalized_map: Dict[str, tuple] = {}
-    title_map: Dict[str, tuple] = {}
-    synonyms_map: Dict[str, tuple] = {}
-    for row in topics.values():
-        meta = row["meta"]
-        folder_rank = _DAILYMED_FOLDER_PRIORITY.get(str(meta.get("folder", "")).lower(), 999)
-        eff_rank = _effective_time_rank(str(meta.get("effective_time", "")))
-        topic_id = str(meta.get("topic_id", ""))
-        key = (folder_rank, -eff_rank, topic_id)
-
-        for alias in [a for a in row["names_norm"] if a]:
-            existing = normalized_map.get(alias)
-            if existing is None or key < existing[0]:
-                normalized_map[alias] = (key, meta, row["doc"])
-
-        if row["title_norm"]:
-            existing = title_map.get(row["title_norm"])
-            if existing is None or key < existing[0]:
-                title_map[row["title_norm"]] = (key, meta, row["doc"])
-
-        for alias in [a for a in row["synonyms_norm"] if a]:
-            existing = synonyms_map.get(alias)
-            if existing is None or key < existing[0]:
-                synonyms_map[alias] = (key, meta, row["doc"])
-
-    payload = {
-        "normalized": normalized_map,
-        "title": title_map,
-        "synonyms": synonyms_map,
-        "normalized_keys": list(normalized_map.keys()),
-        "title_keys": list(title_map.keys()),
-        "synonyms_keys": list(synonyms_map.keys()),
-    }
-    _DAILYMED_ALIAS_CACHE[cache_key] = payload
-    return payload
 
 
 def _best_dailymed_lexical_match(entity_text: str, collection: chromadb.Collection):
