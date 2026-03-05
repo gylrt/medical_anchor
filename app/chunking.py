@@ -7,6 +7,10 @@ def normalize_section_tag(section_name: str) -> str:
     s = section_name.strip().lower()
     if "summary" in s or "overview" in s:
         return "overview"
+    if "indications and usage" in s or "indication and usage" in s:
+        return "indications"
+    if "boxed warning" in s or "warning" == s:
+        return "boxed_warning"
     return "other"
 
 
