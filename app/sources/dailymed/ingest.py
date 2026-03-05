@@ -3,6 +3,7 @@ from datetime import datetime
 from pathlib import Path
 import re
 import argparse
+from typing import Dict, List
 
 import chromadb
 from chromadb.config import Settings
@@ -20,6 +21,100 @@ def _slug(value: str) -> str:
     return s or "section"
 
 
+def _normalize_text(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _primary_drug_name(record: Dict) -> str:
+    name_codes = record.get("drug_name_codes", [])
+    generic = next((x.get("name") for x in name_codes if x.get("name_type") == "generic" and x.get("name")), None)
+    if generic:
+        return generic
+    first_name = next((x.get("name") for x in name_codes if x.get("name")), None)
+    if first_name:
+        return first_name
+    syns = record.get("synonyms", [])
+    if syns:
+        return syns[0]
+    return record.get("set_id") or record.get("document_id") or "unknown_drug"
+
+
+def _topic_title(record: Dict) -> str:
+    folder = (record.get("folder") or "").strip().lower()
+    name = _primary_drug_name(record)
+    return f"{name} [{folder}]" if folder else name
+
+
+def _generic_name(record: Dict) -> str:
+    for item in record.get("drug_name_codes", []):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("name_type", "")).lower() != "generic":
+            continue
+        name = (item.get("name") or "").strip()
+        if name:
+            return name
+    return ""
+
+
+def _build_name_index(records: List[Dict]) -> Dict:
+    payload = {
+        "generated_at": datetime.utcnow().isoformat(),
+        "source": "dailymed",
+        "match_order": ["normalized_names", "title", "synonyms"],
+        "entries": {
+            "normalized_names": {},
+            "title": {},
+            "synonyms": {},
+        },
+    }
+
+    for record in records:
+        topic_id = record.get("document_id") or record.get("set_id") or ""
+        if not topic_id:
+            continue
+        candidate = {
+            "topic_id": topic_id,
+            "topic_title": _topic_title(record),
+            "generic_name": _generic_name(record),
+            "source_url": record.get("source_url", ""),
+            "folder": (record.get("folder") or "").strip().lower(),
+            "effective_time": record.get("effective_time", ""),
+        }
+
+        norm_aliases = set()
+        for x in record.get("drug_name_codes", []):
+            if not isinstance(x, dict):
+                continue
+            alias = _normalize_text(x.get("normalized_name") or x.get("name") or "")
+            if alias:
+                norm_aliases.add(alias)
+
+        title_alias = _normalize_text(candidate["topic_title"])
+        syn_aliases = set(_normalize_text(s) for s in record.get("synonyms", []) if _normalize_text(s))
+
+        for alias in norm_aliases:
+            payload["entries"]["normalized_names"].setdefault(alias, []).append(candidate)
+        if title_alias:
+            payload["entries"]["title"].setdefault(title_alias, []).append(candidate)
+        for alias in syn_aliases:
+            payload["entries"]["synonyms"].setdefault(alias, []).append(candidate)
+
+    return payload
+
+
+def write_name_index(records: List[Dict]) -> Path:
+    out_path = Path(settings.dailymed_name_index_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = _build_name_index(records)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+    print(f"Name index written to {out_path}")
+    return out_path
+
+
 def get_collection() -> chromadb.Collection:
     client = chromadb.PersistentClient(
         path=settings.chroma_dir,
@@ -31,7 +126,7 @@ def get_collection() -> chromadb.Collection:
     )
 
 
-def write_ingest_manifest(input_jsonl: Path, record_count: int, chunk_count: int):
+def write_ingest_manifest(input_jsonl: Path, record_count: int, chunk_count: int, name_index_path: Path):
     manifest = {
         "source_file": input_jsonl.name,
         "ingested_at": datetime.utcnow().isoformat(),
@@ -39,6 +134,7 @@ def write_ingest_manifest(input_jsonl: Path, record_count: int, chunk_count: int
         "chunk_count": chunk_count,
         "embed_model": settings.embed_model,
         "collection_name": settings.dailymed_collection_name,
+        "name_index_file": str(name_index_path),
     }
     manifest_path = Path(settings.chroma_dir) / "ingest_manifest_dailymed.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
@@ -73,6 +169,7 @@ def ingest_dailymed(
             f"(dropped {before - len(records)}, threshold={dedup_similarity_threshold}, "
             f"boxed_warning_check={require_boxed_warning_similarity})"
         )
+    name_index_path = write_name_index(records)
 
     ids, texts, metadatas = [], [], []
     id_counts = {}
@@ -107,7 +204,7 @@ def ingest_dailymed(
         )
         print(f"  batch {i // settings.batch_size + 1}/{total_batches}")
 
-    write_ingest_manifest(input_path, len(records), len(ids))
+    write_ingest_manifest(input_path, len(records), len(ids), name_index_path)
     print(f"Done. Collection size: {collection.count()}")
 
 

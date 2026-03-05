@@ -9,7 +9,7 @@ from sentence_transformers import SentenceTransformer
 
 from app.config import settings
 from app.ner import load_ner_pipeline, extract_entities, Entity
-from app.retrieval import load_collection, retrieve_for_entities
+from app.retrieval import load_collections, retrieve_for_entities
 from app.utils import extract_best_sentences
 
 
@@ -17,7 +17,7 @@ from app.utils import extract_best_sentences
 async def lifespan(app: FastAPI):
     app.state.ner_pipeline = load_ner_pipeline()
     app.state.embed_model = SentenceTransformer(settings.embed_model)
-    app.state.collection = load_collection()
+    app.state.medline_collection, app.state.dailymed_collection = load_collections()
     yield
 
 
@@ -50,6 +50,7 @@ class RetrievalItem(BaseModel):
     matched: bool
     topic_title: Optional[str] = None
     source_url: Optional[str] = None
+    generic_name: Optional[str] = None
     passage: Optional[str] = None
     best_sentences: Optional[str] = None
     highlighted_passage: Optional[str] = None
@@ -84,7 +85,12 @@ def _highlight(entity_text: str, text: str) -> str:
 def _build_retrieval_response(entities: List[Entity], app_state) -> RetrieveResponse:
     if not entities:
         return RetrieveResponse(results=[])
-    results = retrieve_for_entities(entities, app_state.collection, app_state.embed_model)
+    results = retrieve_for_entities(
+        entities,
+        app_state.medline_collection,
+        app_state.dailymed_collection,
+        app_state.embed_model,
+    )
     items = []
     for r in results:
         best_sentences, highlighted_passage, highlighted_best = None, None, None
@@ -103,6 +109,7 @@ def _build_retrieval_response(entities: List[Entity], app_state) -> RetrieveResp
             matched=r.matched,
             topic_title=r.topic_title,
             source_url=r.source_url,
+            generic_name=r.generic_name,
             passage=r.passage,
             best_sentences=best_sentences,
             highlighted_passage=highlighted_passage,
@@ -114,7 +121,11 @@ def _build_retrieval_response(entities: List[Entity], app_state) -> RetrieveResp
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "collection_count": app.state.collection.count()}
+    return {
+        "status": "ok",
+        "medlineplus_count": app.state.medline_collection.count(),
+        "dailymed_count": app.state.dailymed_collection.count(),
+    }
 
 
 @app.post("/extract", response_model=ExtractResponse)

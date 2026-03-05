@@ -4,7 +4,7 @@ from rapidfuzz import fuzz
 from sentence_transformers import SentenceTransformer
 
 from app.ner import load_ner_pipeline, extract_entities
-from app.retrieval import load_collection, retrieve_for_entities, _is_valid_match
+from app.retrieval import load_collections, retrieve_for_entities, _is_valid_match
 from app.config import settings
 
 SAMPLES_DIR = Path("scripts/samples")
@@ -28,7 +28,16 @@ def _best_fuzzy_match(entity_text: str, topic_title: str, meta: dict) -> tuple:
     return best
 
 
-def show_candidates(entity_text: str, collection, embed_model):
+def _target_collection_for_label(label: str, medline_collection, dailymed_collection):
+    return dailymed_collection if (label or "").lower() == "treatment" else medline_collection
+
+
+def show_candidates(entity_text: str, entity_label: str, medline_collection, dailymed_collection, embed_model):
+    if (entity_label or "").lower() == "treatment":
+        print("  candidates: lexical DailyMed match (no vector distance)")
+        return
+
+    collection = _target_collection_for_label(entity_label, medline_collection, dailymed_collection)
     query_vector = embed_model.encode(entity_text).tolist()
     hits = collection.query(
         query_embeddings=[query_vector],
@@ -47,7 +56,7 @@ def main():
     print("Loading models...")
     ner = load_ner_pipeline()
     embed_model = SentenceTransformer(settings.embed_model)
-    collection = load_collection()
+    medline_collection, dailymed_collection = load_collections()
 
     for name, text in SAMPLE_TEXTS.items():
         print(f"\n{'='*60}")
@@ -55,11 +64,22 @@ def main():
         print(f"{'='*60}")
 
         entities = extract_entities(text, ner)
-        results = retrieve_for_entities(entities, collection, embed_model)
+        results = retrieve_for_entities(
+            entities,
+            medline_collection,
+            dailymed_collection,
+            embed_model,
+        )
 
         for r in results:
             print(f"\n  [{r.entity.label}] {r.entity.text}")
-            show_candidates(r.entity.text, collection, embed_model)
+            show_candidates(
+                r.entity.text,
+                r.entity.label,
+                medline_collection,
+                dailymed_collection,
+                embed_model,
+            )
 
             if not r.matched:
                 print(f"  → no relevant information found")
@@ -72,6 +92,8 @@ def main():
             }
             field, term, score = _best_fuzzy_match(r.entity.text, r.topic_title, meta)
             print(f"  → {r.topic_title} (dist={r.distance}, {field} '{term}' {score}%)")
+            if r.generic_name:
+                print(f"  → generic: {r.generic_name}")
             print(f"  → {r.source_url}")
             print(f"  → {r.passage[:200]}...")
 

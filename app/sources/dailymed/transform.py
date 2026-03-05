@@ -75,6 +75,30 @@ def _indications_similarity(left: Dict, right: Dict) -> float:
     return float(fuzz.token_sort_ratio(a, b))
 
 
+def _merge_aliases(winner: Dict, candidate: Dict) -> None:
+    winner_syn = list(winner.get("synonyms", []) or [])
+    for s in candidate.get("synonyms", []) or []:
+        if s and s not in winner_syn:
+            winner_syn.append(s)
+    winner["synonyms"] = winner_syn
+
+    winner_codes = list(winner.get("drug_name_codes", []) or [])
+    seen = set()
+    for x in winner_codes:
+        if not isinstance(x, dict):
+            continue
+        seen.add((x.get("normalized_name"), x.get("name"), x.get("name_type"), x.get("code")))
+    for x in candidate.get("drug_name_codes", []) or []:
+        if not isinstance(x, dict):
+            continue
+        key = (x.get("normalized_name"), x.get("name"), x.get("name_type"), x.get("code"))
+        if key in seen:
+            continue
+        seen.add(key)
+        winner_codes.append(x)
+    winner["drug_name_codes"] = winner_codes
+
+
 def dedup_dailymed_records(
     records: List[Dict],
     similarity_threshold: float = 80.0,
@@ -121,6 +145,7 @@ def dedup_dailymed_records(
 
             boxed_ok = (not require_boxed_warning_similarity) or (sim_boxed >= similarity_threshold)
             if sim_indications >= similarity_threshold and boxed_ok:
+                _merge_aliases(winner, candidate)
                 continue
 
             kept = dict(candidate)
