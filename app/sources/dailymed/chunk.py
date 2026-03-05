@@ -3,7 +3,7 @@ import argparse
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
-from app.chunking import build_chunks_for_section
+from app.core.chunking import build_chunks_for_section
 
 
 def load_dailymed_records_jsonl(jsonl_path: str) -> List[Dict]:

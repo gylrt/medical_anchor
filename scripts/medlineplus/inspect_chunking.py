@@ -7,8 +7,8 @@ Run after inspect_parser.py to confirm the chunking layer is healthy.
 """
 
 from pathlib import Path
-from app.parse_medlineplus import parse_medlineplus_topics
-from app.chunking import build_chunks_for_section
+from app.sources.medlineplus.parse import parse_medlineplus_topics
+from app.core.chunking import build_chunks_for_section
 
 SPOT_CHECK_TITLE = "Asthma"
 

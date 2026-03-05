@@ -4,7 +4,7 @@ Inspect script for minimal DailyMed parsing.
 
 from pathlib import Path
 
-from app.parse_dailymed import parse_dailymed_labels
+from app.sources.dailymed.parse import parse_dailymed_labels
 
 DEFAULT_XML = "658eeffd-e919-4d41-8814-e55273a471e9.xml"
 MAX_BOXED_WARNING_CHARS = 2500

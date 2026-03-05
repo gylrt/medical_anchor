@@ -10,7 +10,7 @@ from typing import Dict, Iterable, List
 import requests
 import re
 
-from app.parse_dailymed import parse_dailymed_labels_from_xml_bytes
+from app.sources.dailymed.parse import parse_dailymed_labels_from_xml_bytes
 
 
 DATA_DIR = Path("data/raw")

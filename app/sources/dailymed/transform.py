@@ -182,11 +182,11 @@ def main():
     parser = argparse.ArgumentParser(description="Deduplicate DailyMed minimal JSONL records.")
     parser.add_argument(
         "--input-jsonl",
-        default="data/processed/dailymed_minimal_jan2026.jsonl",
+        default="data/processed/dailymed_minimal.jsonl",
     )
     parser.add_argument(
         "--output-jsonl",
-        default="data/processed/dailymed_minimal_jan2026_deduped.jsonl",
+        default="data/processed/dailymed_minimal_deduped.jsonl",
     )
     parser.add_argument(
         "--similarity-threshold",

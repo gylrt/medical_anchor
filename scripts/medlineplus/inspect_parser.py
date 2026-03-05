@@ -7,7 +7,7 @@ Run after inspect_download.py to confirm the parsing layer is healthy.
 """
 
 from pathlib import Path
-from app.parse_medlineplus import parse_medlineplus_topics
+from app.sources.medlineplus.parse import parse_medlineplus_topics
 
 SPOT_CHECK_TITLE = "Asthma"
 PREVIEW_COUNT = 3

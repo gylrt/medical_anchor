@@ -1,15 +1,17 @@
 """
-Inspect script for deduplicated DailyMed JSONL.
-
-Reads the deduped file directly and reports aggregate metrics.
+Inspect script for DailyMed dedup metrics.
 """
 
-import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from app.sources.dailymed.chunk import load_dailymed_records_jsonl
+from app.sources.dailymed.transform import dedup_dailymed_records
 
-INPUT_JSONL = Path("data/processed/dailymed_minimal_jan2026_deduped.jsonl")
+
+INPUT_JSONL = Path("data/processed/dailymed_minimal.jsonl")
+DEDUP_SIMILARITY_THRESHOLD = 80.0
+REQUIRE_BOXED_WARNING_SIMILARITY = False
 
 
 def _bucket_score(v: float) -> str:
@@ -27,18 +29,17 @@ def _bucket_score(v: float) -> str:
 def main():
     if not INPUT_JSONL.exists():
         print(f"ERROR: missing input file: {INPUT_JSONL}")
-        print("Run: python -m app.dedup_dailymed")
         return
 
-    records = []
-    with INPUT_JSONL.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                records.append(json.loads(line))
+    raw_records = load_dailymed_records_jsonl(str(INPUT_JSONL))
+    records = dedup_dailymed_records(
+        raw_records,
+        similarity_threshold=DEDUP_SIMILARITY_THRESHOLD,
+        require_boxed_warning_similarity=REQUIRE_BOXED_WARNING_SIMILARITY,
+    )
 
     if not records:
-        print("ERROR: deduped JSONL is empty.")
+        print("ERROR: dedup output is empty.")
         return
 
     by_folder = Counter((r.get("folder") or "").lower() for r in records)
@@ -49,7 +50,6 @@ def main():
     for r in records:
         by_key[r.get("dedup_key", "")].append(r)
 
-    # Estimate original count from winner metadata.
     original_estimate = 0
     for r in winners:
         original_estimate += int(r.get("dedup_group_size", 1) or 1)
@@ -72,12 +72,16 @@ def main():
         boxed_sim_buckets[_bucket_score(bs)] += 1
 
     print("=== Deduped Dataset ===")
-    print(f"  file: {INPUT_JSONL}")
+    print(f"  input_file: {INPUT_JSONL}")
+    print(f"  input_records: {len(raw_records)}")
     print(f"  output_records: {len(records)}")
+    print(f"  dropped_records: {len(raw_records) - len(records)}")
     print(f"  winners: {len(winners)}")
     print(f"  kept_non_winners: {len(non_winners)}")
     print(f"  estimated_original_records: {original_estimate}")
     print(f"  estimated_dropped_records: {dropped_estimate}")
+    print(f"  dedup_threshold: {DEDUP_SIMILARITY_THRESHOLD}")
+    print(f"  boxed_warning_check: {REQUIRE_BOXED_WARNING_SIMILARITY}")
 
     print("\n=== Output Group Sizes (after dedup) ===")
     print(f"  groups_total: {len(by_key)}")

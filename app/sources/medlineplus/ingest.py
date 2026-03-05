@@ -7,8 +7,8 @@ from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
 from app.config import settings
-from app.parse_medlineplus import parse_medlineplus_topics
-from app.chunking import build_chunks_for_section
+from app.sources.medlineplus.parse import parse_medlineplus_topics
+from app.core.chunking import build_chunks_for_section
 
 
 def get_collection() -> chromadb.Collection:

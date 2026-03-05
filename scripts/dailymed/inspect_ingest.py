@@ -33,7 +33,7 @@ def main():
 
     manifest_path = Path(settings.chroma_dir) / "ingest_manifest_dailymed.json"
     if not manifest_path.exists():
-        print("ERROR: ingest_manifest_dailymed.json not found. Run app.ingest_dailymed first.")
+        print("ERROR: ingest_manifest_dailymed.json not found. Run: python -m app.sources.dailymed.ingest")
         return
 
     with open(manifest_path, encoding="utf-8") as f:

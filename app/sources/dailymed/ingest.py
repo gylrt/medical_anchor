@@ -8,9 +8,9 @@ import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 
-from app.chunk_dailymed import load_dailymed_records_jsonl, build_all_chunks_for_dailymed
+from app.sources.dailymed.chunk import load_dailymed_records_jsonl, build_all_chunks_for_dailymed
 from app.config import settings
-from app.dedup_dailymed import dedup_dailymed_records
+from app.sources.dailymed.transform import dedup_dailymed_records
 
 
 def _slug(value: str) -> str:
