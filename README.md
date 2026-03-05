@@ -95,7 +95,6 @@ User input
 ## Optional Extensions
 
 - Answer generation (LLM grounded in retrieved chunks)
-- MedlinePlus Connect API fallback
 - Cross-encoder reranking
 - Evaluation pipeline
 - Bilingual support (FR/EN)
