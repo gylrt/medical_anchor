@@ -6,13 +6,15 @@ A grounded medical information system for biomedical text analysis.
 
 Given any text input — a clinical note, a social media post, a medical report — the system extracts biomedical entities and retrieves trusted, structured information about each one from official sources. Results are grounded strictly in retrieved evidence with full citations.
 
-The system does not answer questions or generate text. It identifies what medical terms are present in your input and surfaces what MedlinePlus says about them.
+The system does not answer questions or generate text. It identifies what medical terms are present in your input and surfaces grounded evidence from MedlinePlus and DailyMed.
 
 ---
 
-## Data Source
+## Data Sources
 
-**MedlinePlus Health Topics** — official XML corpus published by the U.S. National Library of Medicine. Covers thousands of health topics with curated summaries, categorized sections, and structured metadata.
+- **MedlinePlus Health Topics** - official XML corpus published by the U.S. National Library of Medicine. Covers thousands of health topics with curated summaries, categorized sections, and structured metadata.
+- **DailyMed SPL** - official Structured Product Label corpus from the U.S. National Library of Medicine, used for medication/treatment label data (brand/generic aliases, indications text, source URLs).
+
 
 ---
 
@@ -20,28 +22,34 @@ The system does not answer questions or generate text. It identifies what medica
 
 **Pipeline 1 — Data (offline batch)**
 ```
-MedlinePlus XML
-→ Parsing + English filtering
-→ HTML cleanup + metadata extraction (synonyms, see-references, MeSH, related topics)
+MedlinePlus XML / DailyMed SPL ZIPs
+→ Source-specific parsing + normalization
+→ Metadata extraction (titles, synonyms/aliases, references, source URL)
 → Section-aware chunking (prefixed with topic title + section name for richer embeddings)
-→ Embeddings + Chroma DB (small chunk embedded, full parent passage stored in metadata)
+→ Embeddings + Chroma ingestion (per-source collections)
+→ DailyMed name index generation (for fast lexical treatment matching)
 ```
 
 **Pipeline 2 — Online**
 ```
 User input
 → Biomedical NER (samrawal/bert-base-uncased_clinical-ner)
-→ Semantic search (top-5 candidates)
-→ Validation gate: title / synonyms / see-references / MeSH matching
-→ Best topic selection (field priority → distance)
-→ Best chunk selection (closest embedding within winning topic)
-→ Best sentence extraction (forward neighbor)
+→ Entity routing by label:
+   - problem/test -> MedlinePlus retrieval
+   - treatment -> DailyMed retrieval
+→ Source-specific ranking:
+   - MedlinePlus: semantic search, top topic chunk selection
+   - DailyMed: lexical name-index match + topic chunk selection
 → Grounded passage per entity + source URL
 ```
 
-**Retrieval detail** — two-step approach to avoid pure semantic search limitations on short entity terms:
+**MedlinePlus Retrieval detail** — two-step approach to avoid pure semantic search limitations on short entity terms:
 1. Validation gate fuzzy-matches entity against topic metadata. Priority: title > synonyms > see-references > MeSH. Falls back to distance threshold if no metadata match.
 2. Once topic is selected, all its chunks are fetched and re-ranked by embedding distance to find the most relevant passage.
+
+**Dual-source routing (current)**:
+1. `problem` and `test` entities route to **MedlinePlus** (vector retrieval + metadata gate).
+2. `treatment` entities route to **DailyMed** (lexical name-index match: normalized names > title > synonyms, then best chunk by topic).
 
 ---
 
@@ -70,7 +78,6 @@ User input
 ## Known Limitations
 
 - **NER noise** — clinical NER occasionally extracts non-medical entities. Threshold tunable via `ner_min_score`.
-- **Corpus gaps** — medications not covered by MedlinePlus topics. DailyMed extension planned.
 - **Fuzzy matching** — `partial_ratio` can produce false positives on shared substrings. Switching to `token_sort_ratio` at threshold 75 noted as future improvement.
 - **Cold start** — model loading ~60s on CPU. UI polls `/health` and disables Analyze button until ready.
 
@@ -78,9 +85,8 @@ User input
 
 ## Optional Extensions
 
-- DailyMed drug corpus (brand/generic medication coverage)
+- Answer generation (LLM grounded in retrieved chunks)
 - MedlinePlus Connect API fallback
 - Cross-encoder reranking
-- Answer generation (LLM grounded in retrieved chunks)
 - Evaluation pipeline
 - Bilingual support (FR/EN)
