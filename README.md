@@ -1,3 +1,12 @@
+---
+title: medical-anchor
+emoji: 🩺
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_file: app/ui.py
+pinned: false
+---
 # Medical Anchor
 
 A grounded medical information system for biomedical text analysis.
@@ -20,7 +29,7 @@ The system does not answer questions or generate text. It identifies what medica
 
 ## Architecture
 
-**Pipeline 1 — Data (offline batch)**
+**Pipeline 1 - Data (offline batch)**
 ```
 MedlinePlus XML / DailyMed SPL ZIPs
 → Source-specific parsing + normalization
@@ -30,7 +39,7 @@ MedlinePlus XML / DailyMed SPL ZIPs
 → DailyMed name index generation (for fast lexical treatment matching)
 ```
 
-**Pipeline 2 — Online**
+**Pipeline 2 - Online**
 ```
 User input
 → Biomedical NER (samrawal/bert-base-uncased_clinical-ner)
