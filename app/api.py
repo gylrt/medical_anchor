@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
 from app.config import settings
+from app.core.hf_dataset import ensure_local_dataset_assets
 from app.ner import load_ner_pipeline, extract_entities, Entity
 from app.retrieval import load_collections, retrieve_for_entities
 from app.utils import extract_best_sentences
@@ -15,6 +16,13 @@ from app.utils import extract_best_sentences
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if settings.hf_download_if_missing:
+        ensure_local_dataset_assets(
+            repo_id=settings.hf_dataset_repo_id,
+            token=settings.hf_token,
+            chroma_dir=settings.chroma_dir,
+            name_index_path=settings.dailymed_name_index_path,
+        )
     app.state.ner_pipeline = load_ner_pipeline()
     app.state.embed_model = SentenceTransformer(settings.embed_model)
     app.state.medline_collection, app.state.dailymed_collection = load_collections()

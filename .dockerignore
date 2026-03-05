@@ -5,7 +5,7 @@ __pycache__/
 .venv/
 
 # Data
-data/raw/
+data/
 
 # Environment variables
 .env
@@ -31,3 +31,6 @@ build/
 .git/
 .gitignore
 scripts/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

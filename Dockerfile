@@ -6,31 +6,29 @@ RUN apt-get update && apt-get install -y \
     supervisor \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install poetry
+RUN pip install --no-cache-dir poetry
 
 WORKDIR /app
-# Dependencies — only invalidates when pyproject.toml/poetry.lock change
+
+# Dependencies: rebuild only when lock/dependency files change.
 COPY --chown=user pyproject.toml poetry.lock ./
 RUN poetry config virtualenvs.create false && poetry install --no-root --no-interaction
 
-# Data — only invalidates when data/ changes
-COPY --chown=user data/ ./data/
+# Runtime data directories (assets can be downloaded from HF at startup).
+RUN mkdir -p /app/data/chroma /app/data/processed
 
-# Code — invalidates on every code change, but layers above are cached
+# App code: invalidates on code changes only.
 COPY --chown=user app/ ./app/
 COPY --chown=user supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-COPY --chown=user . .
-
 RUN mkdir -p /var/log/supervisor /var/run && \
-    chown -R user:user /var/log/supervisor /var/run /etc/supervisor
-
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-RUN chown user:user /etc/supervisor/conf.d/supervisord.conf
+    chown -R user:user /var/log/supervisor /var/run /etc/supervisor /app/data
 
 USER user
 ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH
+    PATH=/home/user/.local/bin:$PATH \
+    HF_DOWNLOAD_IF_MISSING=true \
+    HF_DATASET_REPO_ID=gylrt/medical-anchor-dataset
 
 EXPOSE 7860
 

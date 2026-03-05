@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     mesh_match_threshold: float = 85.0
     batch_size: int = 256
     max_text_length: int = 10_000
+    hf_token: str = ""
+    hf_dataset_repo_id: str = "gylrt/medical-anchor-dataset"
+    hf_download_if_missing: bool = True
 
     model_config = {"env_file": ".env"}
 
